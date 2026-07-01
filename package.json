@@ -9,7 +9,7 @@
     "start": "echo 'Ready to deploy'"
   },
   "dependencies": {
-    "googleapis": "^118.0.0"
+    "jsonwebtoken": "^9.1.2"
   },
   "engines": {
     "node": "24.x"

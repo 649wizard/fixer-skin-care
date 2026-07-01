@@ -1,23 +1,29 @@
-import { google } from 'googleapis';
+import jwt from 'jsonwebtoken';
 
-async function getAuthClient() {
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      type: 'service_account',
-      project_id: process.env.GOOGLE_PROJECT_ID,
-      private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      client_email: process.env.GOOGLE_CLIENT_EMAIL,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-      client_x509_cert_url: process.env.GOOGLE_CERT_URL,
-    },
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+async function getAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  const claim = {
+    iss: process.env.GOOGLE_CLIENT_EMAIL,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  };
+
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  const token = jwt.sign(claim, privateKey, { algorithm: 'RS256' });
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: token,
+    }),
   });
 
-  return auth;
+  const data = await response.json();
+  return data.access_token;
 }
 
 export default async function handler(req, res) {
@@ -32,33 +38,43 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const auth = await getAuthClient();
-    const sheets = google.sheets('v4');
+    const accessToken = await getAccessToken();
 
-    const response = await sheets.spreadsheets.values.append({
-      auth: auth,
-      spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
-      range: 'Sheet1!A:G',
-      valueInputOption: 'USER_ENTERED',
-      requestBody: {
-        values: [
-          [
-            new Date(timestamp).toLocaleString('ar-EG'),
-            name,
-            phone,
-            email,
-            main_concern || '',
-            Array.isArray(concerns) ? concerns.join(', ') : '',
-            'new',
-          ],
-        ],
-      },
-    });
+    const values = [
+      [
+        new Date(timestamp).toLocaleString('ar-EG'),
+        name,
+        phone,
+        email,
+        main_concern || '',
+        Array.isArray(concerns) ? concerns.join(', ') : '',
+        'new',
+      ],
+    ];
+
+    const response = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${process.env.GOOGLE_SPREADSHEET_ID}/values/Sheet1!A:G:append?valueInputOption=USER_ENTERED`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ values }),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(JSON.stringify(error));
+    }
+
+    const result = await response.json();
 
     return res.status(200).json({
       success: true,
       message: 'Form submitted successfully',
-      updatedRange: response.data.updates?.updatedRange,
+      updatedRange: result.updates?.updatedRange,
     });
   } catch (error) {
     console.error('Error submitting form:', error);
