@@ -1,7 +1,5 @@
 import { google } from 'googleapis';
 
-const sheets = google.sheets('v4');
-
 async function getAuthClient() {
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -19,7 +17,7 @@ async function getAuthClient() {
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 
-  return auth.getClient();
+  return auth;
 }
 
 export default async function handler(req, res) {
@@ -34,14 +32,14 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const authClient = await getAuthClient();
+    const auth = await getAuthClient();
+    const sheets = google.sheets('v4');
 
     const response = await sheets.spreadsheets.values.append({
-      auth: authClient,
+      auth: auth,
       spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
       range: 'Sheet1!A:G',
       valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
       requestBody: {
         values: [
           [
