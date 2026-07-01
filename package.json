@@ -4,14 +4,14 @@
   "description": "FIXER - علاج البشرة بدون حقن",
   "private": true,
   "scripts": {
-    "dev": "vercel dev",
-    "build": "vercel build",
-    "start": "vercel start"
+    "dev": "echo 'Dev server not needed - static files'",
+    "build": "echo 'Static site - no build needed'",
+    "start": "echo 'Ready to deploy'"
   },
   "dependencies": {
     "googleapis": "^118.0.0"
   },
   "engines": {
-    "node": "18.x"
+    "node": "24.x"
   }
 }

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "npm install",
   "outputDirectory": "public",
   "env": {
     "GOOGLE_PROJECT_ID": "@google_project_id",
@@ -9,6 +9,5 @@
     "GOOGLE_CLIENT_ID": "@google_client_id",
     "GOOGLE_CERT_URL": "@google_cert_url",
     "GOOGLE_SPREADSHEET_ID": "@google_spreadsheet_id"
-  },
-  "public": true
+  }
 }
