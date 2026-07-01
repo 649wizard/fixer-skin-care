@@ -53,7 +53,7 @@ export default async function handler(req, res) {
     ];
 
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A1:append?valueInputOption=USER_ENTERED`;
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:append?valueInputOption=USER_ENTERED`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -61,7 +61,10 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ values }),
+      body: JSON.stringify({
+        range: 'Sheet1!A:G',
+        values
+      }),
     });
 
     if (!response.ok) {
