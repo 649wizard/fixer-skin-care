@@ -1,31 +1,3 @@
-import jwt from 'jsonwebtoken';
-
-async function getAccessToken() {
-  const now = Math.floor(Date.now() / 1000);
-  const claim = {
-    iss: process.env.GOOGLE_CLIENT_EMAIL,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
-    aud: 'https://oauth2.googleapis.com/token',
-    exp: now + 3600,
-    iat: now,
-  };
-
-  const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-  const token = jwt.sign(claim, privateKey, { algorithm: 'RS256' });
-
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: token,
-    }),
-  });
-
-  const data = await response.json();
-  return data.access_token;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -38,8 +10,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const accessToken = await getAccessToken();
-
     const values = [
       [
         new Date(timestamp).toLocaleString('ar-EG'),
@@ -48,12 +18,61 @@ export default async function handler(req, res) {
         email,
         main_concern || '',
         Array.isArray(concerns) ? concerns.join(', ') : '',
-        'new',
+        new Date().toISOString(),
       ],
     ];
 
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:append?valueInputOption=USER_ENTERED`;
+
+    // Create JWT
+    const header = {
+      alg: 'RS256',
+      typ: 'JWT',
+    };
+
+    const now = Math.floor(Date.now() / 1000);
+    const payload = {
+      iss: process.env.GOOGLE_CLIENT_EMAIL,
+      scope: 'https://www.googleapis.com/auth/spreadsheets',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now,
+      sub: process.env.GOOGLE_CLIENT_EMAIL,
+    };
+
+    // Simple JWT creation
+    const headerEncoded = Buffer.from(JSON.stringify(header)).toString('base64url');
+    const payloadEncoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signatureInput = `${headerEncoded}.${payloadEncoded}`;
+
+    // Sign with private key
+    const crypto = await import('crypto');
+    const sign = crypto.createSign('RSA-SHA256');
+    const privateKey = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+    sign.update(signatureInput);
+    const signatureEncoded = sign.sign(privateKey, 'base64url');
+
+    const jwtToken = `${signatureInput}.${signatureEncoded}`;
+
+    // Get access token
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion: jwtToken,
+      }),
+    });
+
+    const tokenData = await tokenResponse.json();
+    if (!tokenData.access_token) {
+      throw new Error(`Failed to get access token: ${JSON.stringify(tokenData)}`);
+    }
+
+    const accessToken = tokenData.access_token;
+
+    // Append to Google Sheet
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -63,24 +82,23 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         range: 'Sheet1!A:G',
-        values
+        values,
       }),
     });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(JSON.stringify(error));
-    }
-
     const result = await response.json();
 
-    return res.status(200).json({
-      success: true,
-      message: 'Form submitted successfully',
-      updatedRange: result.updates?.updatedRange,
-    });
+    if (response.ok) {
+      return res.status(200).json({
+        success: true,
+        message: 'Form submitted successfully',
+        range: result.updates?.updatedRange,
+      });
+    } else {
+      throw new Error(JSON.stringify(result));
+    }
   } catch (error) {
-    console.error('Error submitting form:', error);
+    console.error('Error submitting form:', error.message);
     return res.status(500).json({
       error: 'Failed to submit form',
       details: error.message,
